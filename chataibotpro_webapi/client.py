@@ -64,6 +64,7 @@ _SUB_TARIFF_URL         = f"{BASE_URL}/api/payment/subscription/tariff"
 _TG_LINK_URL            = f"{BASE_URL}/api/connect-telegram/link"
 _LOGOUT_URL             = f"{BASE_URL}/api/logout"
 _LANDING_HELLO_URL      = f"{BASE_URL}/api/landing/hello"
+_CTX_DELETE_URL         = f"{BASE_URL}/api/message/context"
 
 
 def _resolve_model(
@@ -204,6 +205,19 @@ class ChatAIBotProClient:
         ) as resp:
             await self._raise_for_status(resp)
 
+    async def _delete(self, url: str, payload: dict) -> str:
+        """Send a DELETE request with a JSON body; return the raw text response."""
+        session = await self._get_session()
+        async with session.delete(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            timeout=self._timeout,
+            proxy=self._proxy,
+        ) as resp:
+            await self._raise_for_status(resp)
+            return await resp.text()
+
     # ── SSE streaming ─────────────────────────────────────────────────────
 
     async def _stream_sse(self, url: str, payload: dict) -> AsyncIterator[dict]:
@@ -220,7 +234,7 @@ class ChatAIBotProClient:
                 await self._raise_for_status(resp)
 
             buf = ""
-            async for raw in resp.content:
+            async for raw in resp.content.iter_chunked(256):
                 buf += raw.decode("utf-8", errors="replace")
                 while "\n\n" in buf:
                     block, buf = buf.split("\n\n", 1)
@@ -385,6 +399,29 @@ class ChatAIBotProClient:
         if title is not None:
             payload["title"] = title
         return await self._post(_CTX_MODEL_URL, payload)
+
+    async def delete_context(self, chat_id: int | list[int]) -> str:
+        """
+        Delete one or more server-side chat contexts
+        (DELETE /api/message/context).
+
+        Parameters
+        ----------
+        chat_id:
+            A single chat ID or a list of chat IDs to delete.
+
+        Returns
+        -------
+        str
+            Raw response text (typically ``"OK"``).
+
+        Example::
+
+            await client.delete_context(4318720)
+            await client.delete_context([4318720, 4318721])
+        """
+        ids = [chat_id] if isinstance(chat_id, int) else list(chat_id)
+        return await self._delete(_CTX_DELETE_URL, {"chatId": ids})
 
     # ══════════════════════════════════════════════════════════════════════
     # CHAT — STREAMING
